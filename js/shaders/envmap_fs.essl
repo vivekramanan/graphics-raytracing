@@ -1,0 +1,271 @@
+Shader.source[document.currentScript.src.split('js/shaders/')[1]] = `
+	precision highp float;
+	uniform samplerCube envTexture;
+	varying vec3 rayDir;
+	uniform vec3 eyePos;
+	uniform mat4 quadrics[100];
+	uniform vec4 brdfs[50];
+
+// sphere
+	mat4 A = mat4(	1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, -9	);
+// clipped
+	mat4 B = mat4(	1, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, -4);
+
+
+	float intersectClippedQuadric(mat4 A, mat4 B, vec4 e, vec4 d){
+    	float a = dot(d * A, d);
+    	float b = dot(d*A, e) + dot(e*A, d);
+    	float c = dot(e*A, e);
+
+		if ((b*b - 4.0*a*c) < 0.0){
+		    		return -1.0;
+		}
+
+    	float tpos = (-1.0*b + sqrt(b*b - 4.0*a*c)) / (2.0*a);
+    	float tneg = (-1.0*b - sqrt(b*b - 4.0*a*c)) / (2.0*a);
+    	
+
+    	vec4 rpos = e + (d*tpos);
+    	vec4 rneg = e + (d*tneg);
+
+    	float rBrpos = dot(rpos * B, rpos);
+    	float rBrneg = dot(rneg * B, rneg);
+    	if (rBrpos > 0.0) {
+    		tpos = -1.0;
+    	} if (rBrneg > 0.0) {
+    		tneg = -1.0;
+    	}
+
+    	float t = min(tpos, tneg);
+
+    	if(t < 0.0) {
+    		t = max(tpos, tneg);
+    	}
+    	return t;
+
+    }
+    
+
+bool findBestHit(vec4 e, vec4 d, out mat4 bestA, out vec4 bestBrdf, out float bestT){
+	    float bT = -1.0;
+		bool intersectFound = false;
+
+		for(int i=0; i<40; i++){
+			float t = intersectClippedQuadric(quadrics[2*i], quadrics[2*i+1], e, d);
+			if (t > 0.0 && (t < bT || !intersectFound)) {
+				intersectFound = true;
+				bT = t;
+				bestBrdf = vec4(brdfs[i].xyz, 2*i);
+				bestA = quadrics[2*i];
+				bestT = t;
+			}
+		}
+			return intersectFound;
+	}
+
+	vec3 oceanPhongBlinn(vec3 surfaceNormal, vec3 worldPosition, vec3 textureColor){
+	
+		vec3 pb = vec3(0,0,0);
+		vec3 diffuse = vec3(0,0,0);
+
+		vec3 light = vec3(5,5,4);
+		vec3 lightPD = vec3(1.0,1.0,1.0);
+		vec3 lightNormal = normalize(light);
+
+		vec3 surfacePt = worldPosition + vec3(surfaceNormal * .01);
+		vec3 lightDistanceFromPoint = light - surfacePt;
+
+	   	vec3 worldNormalN = normalize(surfaceNormal);
+	   	vec3 viewDirection = normalize(eyePos - worldPosition);
+	   	float lightAngle = dot(worldNormalN, lightNormal);
+
+		vec3 litColor = textureColor * lightAngle;
+		diffuse = litColor * lightPD;
+
+		vec3 halfway = normalize(viewDirection + lightNormal);
+		pb = pow(dot(worldNormalN, halfway), 15.0) * vec3(1, 1, 1) * lightPD;
+		
+		return pb + diffuse;
+	}
+
+	vec3 phongBlinn(vec3 surfaceNormal, vec3 worldPosition, vec3 textureColor){
+	
+		vec3 pb = vec3(0,0,0);
+		vec3 diffuse = vec3(0,0,0);
+
+		vec3 light = vec3(5,5,4);
+		vec3 lightPD = vec3(1.0,1.0,1.0);
+		vec3 lightNormal = normalize(light);
+
+		vec3 surfacePt = worldPosition + vec3(surfaceNormal * .01);
+		vec3 lightDistanceFromPoint = light - surfacePt;
+		
+	   	float bestShadowT;
+	   	mat4 bestA;
+	   	vec4 bestBrdf;
+
+	   	bool shadowPresent = findBestHit(vec4(surfacePt, 1), vec4(lightNormal, 0), bestA, bestBrdf, bestShadowT);
+
+	   if(!shadowPresent || bestShadowT > 10000000000.0) {
+	   		vec3 worldNormalN = normalize(surfaceNormal);
+	   		vec3 viewDirection = normalize(eyePos - worldPosition);
+	   		float lightAngle = dot(worldNormalN, lightNormal);
+
+			vec3 litColor = textureColor * lightAngle;
+			diffuse = litColor * lightPD;
+
+			vec3 halfway = normalize(viewDirection + lightNormal);
+			pb = pow(dot(worldNormalN, halfway), 15.0) * vec3(1, 1, 1) * lightPD;
+
+	   	}
+		
+		return pb + diffuse;
+	}
+
+	vec3 diffuse(vec3 surfaceNormal, vec3 worldPosition, vec3 textureColor) {
+
+		vec3 worldNormalN = normalize(surfaceNormal);
+		vec3 pb = vec3(0,0,0);
+		vec3 light = vec3(5,5,4);
+		vec3 lightPD = vec3(.8,.8,.8);
+		vec3 lightNormal = normalize(light);
+		float lightAngle = dot(worldNormalN, lightNormal);
+
+		vec3 viewDirection = normalize(eyePos - worldPosition);
+
+		vec3 litColor = textureColor * lightAngle;
+		vec3 diffuse = litColor * lightPD;
+		
+		return diffuse;
+	}
+
+	vec3 gradientNoise(vec3 r) {
+  		vec3 s = vec3(17502, 22777, 4767);
+  		vec3 w = vec3(0.0, 0.0, 0.0);
+  		for(int i=0; i<16; i++) {
+    		w += cos( dot(s - vec3(32768, 32768, 32768),
+              	r*40.0) / 65536.0) 
+         		* (s - vec3(32768, 32768, 32768)) * 40.0;
+    	s = mod(s, 32768.0) * 2.0 + floor(s / 32768.0);
+  		}
+  		return w / 65536.0;
+	}
+
+	void main () {
+	    vec4 e = vec4(eyePos, 1);
+	    vec4 d = vec4(normalize(rayDir), 0);
+	    mat4 bestA;
+	    vec4 bestBrdf;
+	    float bestT;
+	    bool intersectFound = findBestHit(e, d, bestA, bestBrdf, bestT);
+
+	    if(intersectFound) {
+	    	vec4 r = e + d*bestT;
+
+		    vec3 normalized = normalize((r*bestA + bestA*r).xyz);
+		    
+		    if (dot(d.xyz,normalized) > 0.0) {
+		    	normalized = normalized*-1.0;
+		    }
+		    
+		    float angle = float(atan(normalized.z, normalized.x));
+		    float indicator = fract(angle * 1.1);
+		    vec4 color = vec4(bestBrdf.rgb, 1);
+
+		    if(bestBrdf.w == 0.0) {
+		    	if (indicator < 0.5) {
+		    		//vec4 color = vec4(1,0,0, 1);
+		    		vec4 color = vec4(bestBrdf.rgb, 1);
+		    		gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+		    	}
+		    	else {
+		    		vec4 color = vec4(1,1,1,1);
+		    		gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+		    	}
+			}
+			else if(bestBrdf.w == 2.0) {
+				r.y += 0.015*sin(100000.0*r.x);
+				vec4 color = vec4(.8,.8,0.4,1);
+				gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+			}
+			if(bestBrdf.w == 4.0) {
+				//vec4 color = vec4(1,0,0,1);
+				gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+			}
+			
+			else if(bestBrdf.w == 6.0) {
+				if (indicator < 0.5) {
+		    		//vec4 color = vec4(0,0,1,1);
+		    		gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+		    	}
+		    	else {
+		    		vec4 color = vec4(1,1,1,1);
+		    		gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+		    	}
+			}
+			
+			else if(bestBrdf.w >= 8.0 && bestBrdf.w <= 18.0) {
+				//r.y += 0.02*sin(500000.0*r.x);
+				//vec4 color = vec4(1,1,0,1);
+				gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+			}
+			else if(bestBrdf.w >= 20.0 && bestBrdf.w <= 30.0) {
+				//r.y += 0.015*sin(500000.0*r.x);
+				//vec4 color = vec4(.8,.8,0,1);
+				gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+			}
+			else if(bestBrdf.w >= 32.0 && bestBrdf.w <= 38.0) {
+				//vec4 color = vec4(0.4, 0.2, 0.1, 1);
+				gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+			}
+			else if(bestBrdf.w >= 40.0 && bestBrdf.w <= 46.0) {
+				//vec4 color = vec4(0,1,0,1);
+				gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz),1);
+			}
+			else if(bestBrdf.w == 48.0) {
+				normalized.y += 0.01*sin(r.x*r.y*200.0);
+				d = vec4(normalize(reflect(d.xyz, normalized.xyz)), 0);
+				e = r + vec4(normalize(normalized)*0.01,0);
+				bool intersectFound = findBestHit(e, d, bestA, bestBrdf, bestT);
+				//vec4 color = vec4(.15,.8,.95,1);
+				if(intersectFound) {
+					vec4 color = vec4(bestBrdf.rgb, 1);
+					r = e + d*bestT;
+					normalized = normalize((r*bestA + bestA*r).xyz);
+					float angle = float(atan(normalized.z, normalized.x));
+		    		float indicator = fract(angle * 1.1);
+					if(bestBrdf.w == 0.0 || bestBrdf.w == 6.0) {
+						if(indicator < 0.5) {
+							gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+						}
+						else {
+							vec4 color = vec4(1,1,1,1);
+							gl_FragColor = vec4(phongBlinn(normalized, r.xyz, color.xyz), 1);
+						}
+					} else {
+					gl_FragColor = vec4(oceanPhongBlinn(normalized, r.xyz, color.xyz), 1);
+				}
+
+				} else {
+					vec4 color = vec4(.1,.7,.8,1);
+					r.xyz = gradientNoise(r.xyz);
+					gl_FragColor = vec4(oceanPhongBlinn(normalized, r.xyz, color.xyz), 1);
+				}
+			}
+
+	    } else {
+		    gl_FragColor = textureCube(envTexture, rayDir);
+	    }
+	    
+
+    }
+
+    
+
+`;

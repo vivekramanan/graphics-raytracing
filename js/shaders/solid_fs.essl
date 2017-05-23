@@ -1,0 +1,41 @@
+Shader.source[document.currentScript.src.split('js/shaders/')[1]] = `
+	
+	precision highp float;
+	varying vec2 tex;
+	uniform vec2 texScale;
+	uniform vec2 texTranslate;
+
+	uniform float opacity;
+	varying vec3 worldNormal;
+	varying vec3 worldPosition;
+	varying vec3 lightNormal;
+
+	uniform sampler2D colorTexture;
+
+	vec4 lightPos = vec4(1,1,1,1);
+	uniform vec3 lightPowerDensity;
+	uniform vec3 cameraPos;
+	uniform vec3 eyePos;
+
+	void main(void) {
+
+		vec4 textureColor = texture2D(colorTexture, tex);
+		vec3 worldNormalN = normalize(worldNormal);
+		float lightAngle = dot(worldNormalN, lightNormal);
+		if (lightAngle < 0.0) {
+			lightAngle = 0.0;
+		}
+		vec3 litColor = textureColor.xyz * lightAngle;
+
+		vec3 litColorDiffused = litColor * lightPowerDensity;
+
+		vec3 v = normalize(eyePos - worldPosition);
+
+		vec3 h = normalize(v + lightNormal);
+		
+		vec3 pTwo = pow(dot(worldNormalN, h), 15.0) * vec3(1, 1, 1) * lightPowerDensity;
+		gl_FragColor = vec4(litColorDiffused + pTwo, 1);
+		
+
+	}
+`;

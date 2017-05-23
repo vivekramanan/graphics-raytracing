@@ -1,0 +1,22 @@
+Shader.source[document.currentScript.src.split('js/shaders/')[1]] = `
+	attribute vec3 vertexPosition;
+	attribute vec2 vertexTexCoord;
+	attribute vec3 vertexNormal;
+    varying vec2 tex;
+    uniform mat4 modelMatrix;
+    uniform mat4 modelMatrixInverse;
+
+    varying vec3 worldNormal;
+    varying vec3 worldPosition;
+    varying vec3 lightNormal;
+
+    uniform mat4 modelViewProjMatrix;
+
+	void main(void) {
+		tex = vertexTexCoord;
+		gl_Position = vec4(vertexPosition, 1) * modelViewProjMatrix;
+		worldPosition = (vec4(vertexPosition, 1) * modelMatrix).xyz;
+		worldNormal = (modelMatrixInverse * vec4(vertexNormal,0)).xyz;
+		lightNormal = vec3(.5,.5,.5);
+	}
+`;
